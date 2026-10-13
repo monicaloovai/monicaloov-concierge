@@ -72,6 +72,24 @@ export const UI = {
     sv: "Kontaktformuläret är inte kopplat ännu (demo). Ring eller mejla receptionen så länge.",
     en: "The contact form is not connected yet (demo). Please call or email reception for now.",
   },
+  talk: { sv: "Prata med Monica", en: "Talk to Monica" },
+  listening: { sv: "Jag lyssnar…", en: "I'm listening…" },
+  speaking: { sv: "Monica talar…", en: "Monica is speaking…" },
+  tapToStop: { sv: "Tryck för att avbryta", en: "Tap to stop" },
+  hearWelcome: { sv: "Hör Monica hälsa välkommen", en: "Hear Monica's welcome" },
+  playAnswer: { sv: "Lyssna på svaret", en: "Listen to the answer" },
+  micDenied: {
+    sv: "Jag fick inte tillgång till mikrofonen. Tillåt mikrofonen i webbläsaren och försök igen.",
+    en: "I couldn't access the microphone. Please allow the microphone in your browser and try again.",
+  },
+  didNotHear: {
+    sv: "Jag hörde tyvärr inte riktigt. Försök gärna igen.",
+    en: "Sorry, I didn't quite catch that. Please try again.",
+  },
+  voiceNotSupported: {
+    sv: "Röststyrning stöds inte i den här webbläsaren. Prova Safari eller Chrome – eller skriv din fråga.",
+    en: "Voice is not supported in this browser. Try Safari or Chrome – or type your question.",
+  },
   poweredBy: { sv: "Drivs av MonicaLoov.ai", en: "Powered by MonicaLoov.ai" },
   cubiqoLine: {
     sv: "Du hittade mig via Cubiqo – hotellets digitala ingång.",
