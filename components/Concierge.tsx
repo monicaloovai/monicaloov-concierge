@@ -13,12 +13,24 @@ import {
   Flower2,
   Info,
   Mail,
+  Mic,
   Phone,
   Send,
+  Square,
   UtensilsCrossed,
+  Volume2,
   type LucideIcon,
 } from "lucide-react";
 import { LANGS, UI, type Lang } from "@/lib/i18n";
+import {
+  canListen,
+  canSpeak,
+  createRecognition,
+  speak,
+  stopSpeaking,
+  unlockSpeech,
+  type Recognition,
+} from "@/lib/speech";
 import { txt, type Hotel, type IconName, type Section, type SectionId } from "@/lib/hotels";
 
 const ICONS: Record<IconName, LucideIcon> = {
@@ -32,7 +44,8 @@ const ICONS: Record<IconName, LucideIcon> = {
   book: CalendarCheck,
 };
 
-type ChatMessage = { from: "guest" | "monica"; text: string; sectionId?: SectionId };
+type ChatMessage = { from: "guest" | "monica"; text: string; lang?: Lang; sectionId?: SectionId };
+type VoiceState = "idle" | "listening" | "speaking";
 
 const LANG_KEY = "monicaloov-lang";
 
@@ -41,7 +54,11 @@ export default function Concierge({ hotel }: { hotel: Hotel }) {
   const [openId, setOpenId] = useState<SectionId | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [question, setQuestion] = useState("");
+  const [voice, setVoice] = useState<VoiceState>("idle");
+  const [voiceSupported, setVoiceSupported] = useState(true);
+  const [voiceNote, setVoiceNote] = useState("");
   const openedByClick = useRef(false);
+  const recognitionRef = useRef<Recognition | null>(null);
 
   const t = (key: keyof typeof UI) => UI[key][lang];
   const sectionById = (id: SectionId) => hotel.sections.find((s) => s.id === id);
@@ -96,10 +113,28 @@ export default function Concierge({ hotel }: { hotel: Hotel }) {
     }
   }
 
-  // Demo-chatt: hittar rätt avsnitt utifrån nyckelord. Riktig AI kopplas in senare.
-  function ask(e: FormEvent) {
-    e.preventDefault();
-    const q = question.trim();
+  // Kolla om webbläsaren klarar röst
+  useEffect(() => {
+    setVoiceSupported(canListen() && canSpeak());
+    return () => {
+      recognitionRef.current?.abort();
+      stopSpeaking();
+    };
+  }, []);
+
+  // Monica säger något högt
+  function say(text: string, sayLang: Lang) {
+    speak(
+      text,
+      sayLang,
+      () => setVoice("speaking"),
+      () => setVoice("idle"),
+    );
+  }
+
+  // Demo-svar: hittar rätt avsnitt utifrån nyckelord. Riktig AI kopplas in senare.
+  function answer(raw: string, viaVoice: boolean) {
+    const q = raw.trim().slice(0, 300);
     if (!q) return;
     const lower = q.toLowerCase();
     let replyLang = lang;
@@ -107,10 +142,10 @@ export default function Concierge({ hotel }: { hotel: Hotel }) {
 
     if (/(english|engelska)/.test(lower)) {
       replyLang = "en";
-      reply = { from: "monica", text: UI.switchedToEn.en };
+      reply = { from: "monica", text: UI.switchedToEn.en, lang: "en" };
     } else if (/(svenska|swedish)/.test(lower)) {
       replyLang = "sv";
-      reply = { from: "monica", text: UI.switchedToSv.sv };
+      reply = { from: "monica", text: UI.switchedToSv.sv, lang: "sv" };
     } else {
       let best: Section | undefined;
       let bestScore = 0;
@@ -122,13 +157,80 @@ export default function Concierge({ hotel }: { hotel: Hotel }) {
         }
       }
       reply = best
-        ? { from: "monica", text: best.answer[lang], sectionId: best.id }
-        : { from: "monica", text: UI.fallback[lang], sectionId: "contact" };
+        ? { from: "monica", text: best.answer[lang], lang, sectionId: best.id }
+        : { from: "monica", text: UI.fallback[lang], lang, sectionId: "contact" };
     }
 
     if (replyLang !== lang) changeLang(replyLang);
     setMessages((prev) => [...prev, { from: "guest" as const, text: q }, reply].slice(-6));
+    if (viaVoice) say(reply.text, replyLang);
+  }
+
+  function ask(e: FormEvent) {
+    e.preventDefault();
+    answer(question, false);
     setQuestion("");
+  }
+
+  // Huvudknappen: lyssna / avbryt
+  function toggleTalk() {
+    setVoiceNote("");
+    if (voice === "speaking") {
+      stopSpeaking();
+      setVoice("idle");
+      return;
+    }
+    if (voice === "listening") {
+      recognitionRef.current?.stop();
+      return;
+    }
+    if (!voiceSupported) {
+      setVoiceNote(UI.voiceNotSupported[lang]);
+      return;
+    }
+    unlockSpeech();
+    const rec = createRecognition(lang);
+    if (!rec) {
+      setVoiceNote(UI.voiceNotSupported[lang]);
+      return;
+    }
+    recognitionRef.current = rec;
+    let heard = false;
+    rec.onresult = (e) => {
+      const text = e.results[0]?.[0]?.transcript ?? "";
+      if (text.trim()) {
+        heard = true;
+        answer(text, true);
+      }
+    };
+    rec.onerror = (e) => {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        setVoiceNote(UI.micDenied[lang]);
+      }
+    };
+    rec.onend = () => {
+      recognitionRef.current = null;
+      setVoice((v) => (v === "listening" ? "idle" : v));
+      if (!heard) setVoiceNote((n) => n || UI.didNotHear[lang]);
+    };
+    try {
+      rec.start();
+      setVoice("listening");
+    } catch {
+      setVoice("idle");
+      setVoiceNote(UI.voiceNotSupported[lang]);
+    }
+  }
+
+  function playWelcome() {
+    setVoiceNote("");
+    recognitionRef.current?.abort();
+    if (voice === "speaking") {
+      stopSpeaking();
+      setVoice("idle");
+      return;
+    }
+    say(hotel.welcome[lang], lang);
   }
 
   return (
@@ -168,9 +270,22 @@ export default function Concierge({ hotel }: { hotel: Hotel }) {
         <main>
           {/* Avatar och välkomst */}
           <section className="bg-navy px-5 pb-16 pt-2">
-            <div className="fade-up relative overflow-hidden rounded-[28px] ring-1 ring-gold/30">
+            <div
+              className={`fade-up relative overflow-hidden rounded-[28px] transition-shadow duration-500 ${
+                voice === "idle" ? "ring-1 ring-gold/30" : "ring-2 ring-gold shadow-[0_0_40px_rgba(201,167,106,0.55)]"
+              }`}
+            >
               <AvatarMedia hotel={hotel} lang={lang} />
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-navy via-navy/10 to-transparent" />
+              {voice !== "idle" && (
+                <span
+                  className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-navy/80 px-3 py-1.5 text-xs font-semibold text-ivory ring-1 ring-gold/50"
+                  aria-live="polite"
+                >
+                  <SoundBars />
+                  {voice === "listening" ? t("listening") : t("speaking")}
+                </span>
+              )}
               {hotel.isDemo && (
                 <span className="absolute right-4 top-4 rounded-full bg-navy/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-gold ring-1 ring-gold/40">
                   {t("demoBadge")}
@@ -186,6 +301,43 @@ export default function Concierge({ hotel }: { hotel: Hotel }) {
           <section className="-mt-10 px-5">
             <div className="fade-up rounded-[24px] bg-white p-6 shadow-[0_12px_40px_rgba(16,27,50,0.10)]">
               <WelcomeText text={hotel.welcome[lang]} />
+
+              {/* Prata med Monica */}
+              <button
+                onClick={toggleTalk}
+                aria-pressed={voice === "listening"}
+                className={`mt-6 flex min-h-14 w-full items-center justify-center gap-3 rounded-full text-[16px] font-semibold transition active:scale-[0.98] ${
+                  voice === "idle" ? "bg-gold text-navy hover:brightness-105" : "bg-navy text-ivory"
+                }`}
+              >
+                {voice === "idle" ? (
+                  <>
+                    <Mic size={20} aria-hidden />
+                    {t("talk")}
+                  </>
+                ) : (
+                  <>
+                    <span className="relative flex h-3 w-3">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-gold opacity-75" />
+                      <Square size={12} className="relative fill-gold text-gold" aria-hidden />
+                    </span>
+                    {voice === "listening" ? t("listening") : t("speaking")}
+                    <span className="text-xs font-normal text-ivory/60">· {t("tapToStop")}</span>
+                  </>
+                )}
+              </button>
+              <button
+                onClick={playWelcome}
+                className="mx-auto mt-3 flex min-h-10 items-center gap-2 text-sm font-medium text-navy underline decoration-gold decoration-2 underline-offset-4"
+              >
+                <Volume2 size={16} className="text-gold" aria-hidden />
+                {t("hearWelcome")}
+              </button>
+              {voiceNote && (
+                <p className="mt-2 rounded-2xl bg-ivory p-3 text-center text-sm text-ink/70 ring-1 ring-beige" role="status">
+                  {voiceNote}
+                </p>
+              )}
 
               {/* Fråga Monica */}
               <form onSubmit={ask} className="mt-6">
@@ -221,6 +373,15 @@ export default function Concierge({ hotel }: { hotel: Hotel }) {
                         }`}
                       >
                         {m.text}
+                        {m.from === "monica" && voiceSupported && (
+                          <button
+                            onClick={() => say(m.text, m.lang ?? lang)}
+                            aria-label={t("playAnswer")}
+                            className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-full align-middle text-gold hover:bg-beige"
+                          >
+                            <Volume2 size={16} aria-hidden />
+                          </button>
+                        )}
                         {m.sectionId && (
                           <button
                             onClick={() => open(m.sectionId!)}
@@ -288,6 +449,16 @@ export default function Concierge({ hotel }: { hotel: Hotel }) {
         </main>
       )}
     </div>
+  );
+}
+
+function SoundBars() {
+  return (
+    <span className="flex h-3 items-end gap-0.5" aria-hidden>
+      <span className="h-1.5 w-0.5 animate-pulse rounded bg-gold" />
+      <span className="h-3 w-0.5 animate-pulse rounded bg-gold [animation-delay:150ms]" />
+      <span className="h-2 w-0.5 animate-pulse rounded bg-gold [animation-delay:300ms]" />
+    </span>
   );
 }
 
