@@ -1,0 +1,17 @@
+# Beroenden och byggfiler
+node_modules
+.next
+out
+build
+
+# Hemligheter – får ALDRIG läggas i GitHub
+.env
+.env.*
+!.env.example
+
+# Övrigt
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+npm-debug.log*
